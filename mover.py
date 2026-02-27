@@ -2,7 +2,6 @@ import gspread
 import json
 import os
 import logging
-from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -37,15 +36,14 @@ def main():
         url       = row.get("url", "")
         comment   = row.get("comment", "")
 
-        # Добавляем в posts
+        # Добавляем в posts БЕЗ published_at
         posts_sheet.append_row([
-            "new",                                    # A - status
-            "",                                       # B - published_at (пусто, бот заполнит)
-            title,                                    # C - title
-            text,                                     # D - text
-            photo_url,                                # E - photo_url
-            url,                                      # F - url
-            comment,                                  # G - comment
+            "new",      # A - status (бот ищет именно new)
+            title,      # B - title
+            text,       # C - text
+            photo_url,  # D - photo_url
+            url,        # E - url
+            comment,    # F - comment
         ])
 
         # Меняем статус в news на done
