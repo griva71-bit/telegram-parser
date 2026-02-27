@@ -15,23 +15,29 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1VAc6d7sfScnLS-LvN7gYg06IeaR6
 SHEET_NAME = "news"
 
 RSS_FEEDS = [
-    "https://news.google.com/rss/search?q=%D0%B3%D0%BE%D0%BB%D0%BE%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5&hl=ru&gl=RU&ceid=RU:ru",
-    "https://news.google.com/rss/search?q=%D0%B4%D0%B8%D0%B5%D1%82%D0%B0+%D0%BC%D0%B5%D1%82%D0%B0%D0%B1%D0%BE%D0%BB%D0%B8%D0%B7%D0%BC&hl=ru&gl=RU&ceid=RU:ru",
-    "https://news.google.com/rss/search?q=%D0%BC%D0%B8%D0%BA%D1%80%D0%BE%D0%B1%D0%B8%D0%BE%D0%BC&hl=ru&gl=RU&ceid=RU:ru",
-    "https://news.google.com/rss/search?q=%D0%BA%D0%B5%D1%82%D0%BE+%D0%B4%D0%B8%D0%B5%D1%82%D0%B0&hl=ru&gl=RU&ceid=RU:ru",
     "https://medvestnik.ru/rss",
+    "https://nv.ua/rss/health.xml",
+    "https://naked-science.ru/rss",
+    "https://nauka.tass.ru/rss",
+    "https://indicator.ru/rss",
+    "https://pcr.news/rss/",
+    "https://naukatv.ru/rss",
+    "https://sciencenews.ru/rss",
 ]
 
 ALLOW_KEYWORDS = [
     "пребиот", "жкт", "интермитент", "интервальн", "клиническ",
     "кортизол", "кетоз", "голодан", "аутофаг", "микробиом",
-    "метабол", "долголет", "диет", "инсулин", "fasting", "autophagy"
+    "метабол", "долголет", "диет", "инсулин", "fasting", "autophagy",
+    "питани", "пищевар", "кишечник", "ожирен", "похуден",
+    "витамин", "биохим", "гормон", "воспален", "антиоксид"
 ]
 
 BLOCK_KEYWORDS = [
     "ремонт", "увол", "назнач", "закуп", "финанс", "администрац",
     "главврач", "совещан", "заседан", "актрис", "роман", "скандал",
-    "звезд", "знаменит", "светск"
+    "звезд", "знаменит", "светск", "полиц", "крим", "арест",
+    "выбор", "депутат", "партия", "митинг"
 ]
 
 HEADERS = {
@@ -42,28 +48,12 @@ def is_allowed(text: str) -> bool:
     ltext = (text or "").lower()
     return any(kw in ltext for kw in ALLOW_KEYWORDS) and not any(bw in ltext for bw in BLOCK_KEYWORDS)
 
-def resolve_google_url(url: str) -> str:
-    try:
-        if "news.google.com" in url:
-            resp = requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True)
-            real_url = resp.url
-            if "news.google.com" not in real_url:
-                return real_url
-            soup = BeautifulSoup(resp.text, "html.parser")
-            link = soup.find("a", {"data-n-au": True})
-            if link:
-                return link["data-n-au"]
-        return url
-    except Exception as ex:
-        log.error(f"Ошибка resolve: {ex}")
-        return url
-
 def scrape_article(url: str) -> tuple:
     try:
-        real_url = resolve_google_url(url)
-        resp = requests.get(real_url, headers=HEADERS, timeout=10)
+        resp = requests.get(url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(resp.text, "html.parser")
 
+        # Фото
         photo_url = ""
         og = soup.find("meta", property="og:image")
         if og and og.get("content"):
@@ -73,9 +63,11 @@ def scrape_article(url: str) -> tuple:
             if tw and tw.get("content"):
                 photo_url = tw["content"]
 
+        # Убираем мусор
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
             tag.decompose()
 
+        # Ищем тело статьи
         article = (
             soup.find("article")
             or soup.find("div", class_=re.compile(r"article|content|body|text", re.I))
@@ -87,12 +79,12 @@ def scrape_article(url: str) -> tuple:
             p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 40
         )[:3000]
 
-        log.info(f"фото={'есть' if photo_url else 'нет'} | текст={len(full_text)}")
-        return photo_url, full_text.strip(), real_url
+        log.info(f"фото={'есть' if photo_url else 'нет'} | текст={len(full_text)} | {url[:50]}")
+        return photo_url, full_text.strip()
 
     except Exception as ex:
-        log.error(f"Ошибка scrape: {ex}")
-        return "", "", url
+        log.error(f"Ошибка scrape: {ex} | {url[:50]}")
+        return "", ""
 
 def get_sheet():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -110,9 +102,13 @@ def main():
     added = 0
 
     for feed_url in RSS_FEEDS:
-        log.info(f"Читаю RSS: {feed_url[:60]}")
-        feed = feedparser.parse(feed_url)
-        log.info(f"Найдено статей в RSS: {len(feed.entries)}")
+        log.info(f"Читаю RSS: {feed_url}")
+        try:
+            feed = feedparser.parse(feed_url)
+            log.info(f"Найдено статей: {len(feed.entries)}")
+        except Exception as ex:
+            log.error(f"Ошибка RSS: {ex}")
+            continue
 
         for entry in feed.entries[:20]:
             title = entry.get("title", "").strip()
@@ -125,25 +121,33 @@ def main():
                 log.info(f"Пропуск: {title[:60]}")
                 continue
 
-            photo_url, full_text, real_url = scrape_article(url)
+            photo_url, full_text = scrape_article(url)
 
+            # Если не получили текст — берём из RSS summary
             if not full_text:
                 full_text = BeautifulSoup(
                     entry.get("summary", ""), "html.parser"
                 ).get_text().strip()
-                log.info(f"Текст из summary: {title[:60]}")
+
+            # Если фото нет в статье — ищем в RSS
+            if not photo_url:
+                for enc in entry.get("enclosures", []):
+                    if enc.get("type", "").startswith("image"):
+                        photo_url = enc.get("href", "")
+                        break
+                if not photo_url and entry.get("media_thumbnail"):
+                    photo_url = entry["media_thumbnail"][0].get("url", "")
 
             sheet.append_row([
                 "new",
                 title,
                 full_text,
                 photo_url,
-                real_url,
+                url,
                 "",
             ])
 
             existing_urls.add(url)
-            existing_urls.add(real_url)
             added += 1
             log.info(f"Добавлено: {title[:60]}")
 
