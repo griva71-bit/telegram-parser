@@ -15,7 +15,10 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1VAc6d7sfScnLS-LvN7gYg06IeaR6
 SHEET_NAME = "news"
 
 RSS_FEEDS = [
-    "https://news.google.com/rss/search?q=%D0%B3%D0%BE%D0%BB%D0%BE%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5%20OR%20%D0%B0%D1%83%D1%82%D0%BE%D1%84%D0%B0%D0%B3%D0%B8%D1%8F&hl=ru&gl=RU&ceid=RU:ru",
+    "https://news.google.com/rss/search?q=%D0%B3%D0%BE%D0%BB%D0%BE%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5&hl=ru&gl=RU&ceid=RU:ru",
+    "https://news.google.com/rss/search?q=%D0%B4%D0%B8%D0%B5%D1%82%D0%B0+%D0%BC%D0%B5%D1%82%D0%B0%D0%B1%D0%BE%D0%BB%D0%B8%D0%B7%D0%BC&hl=ru&gl=RU&ceid=RU:ru",
+    "https://news.google.com/rss/search?q=%D0%BC%D0%B8%D0%BA%D1%80%D0%BE%D0%B1%D0%B8%D0%BE%D0%BC&hl=ru&gl=RU&ceid=RU:ru",
+    "https://news.google.com/rss/search?q=%D0%BA%D0%B5%D1%82%D0%BE+%D0%B4%D0%B8%D0%B5%D1%82%D0%B0&hl=ru&gl=RU&ceid=RU:ru",
     "https://medvestnik.ru/rss",
 ]
 
@@ -52,7 +55,7 @@ def resolve_google_url(url: str) -> str:
                 return link["data-n-au"]
         return url
     except Exception as ex:
-        log.error(f"❌ Ошибка resolve: {ex}")
+        log.error(f"Ошибка resolve: {ex}")
         return url
 
 def scrape_article(url: str) -> tuple:
@@ -84,11 +87,11 @@ def scrape_article(url: str) -> tuple:
             p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 40
         )[:3000]
 
-        log.info(f"✅ фото={'есть' if photo_url else 'нет'} | текст={len(full_text)}")
+        log.info(f"фото={'есть' if photo_url else 'нет'} | текст={len(full_text)}")
         return photo_url, full_text.strip(), real_url
 
     except Exception as ex:
-        log.error(f"❌ Ошибка scrape: {url}: {ex}")
+        log.error(f"Ошибка scrape: {ex}")
         return "", "", url
 
 def get_sheet():
@@ -109,8 +112,9 @@ def main():
     for feed_url in RSS_FEEDS:
         log.info(f"Читаю RSS: {feed_url[:60]}")
         feed = feedparser.parse(feed_url)
+        log.info(f"Найдено статей в RSS: {len(feed.entries)}")
 
-        for entry in feed.entries[:10]:
+        for entry in feed.entries[:20]:
             title = entry.get("title", "").strip()
             url = entry.get("link", "").strip()
 
@@ -118,33 +122,30 @@ def main():
                 continue
 
             if not is_allowed(title):
-                log.info(f"⏭️ Пропуск: {title[:60]}")
+                log.info(f"Пропуск: {title[:60]}")
                 continue
 
             photo_url, full_text, real_url = scrape_article(url)
 
-            # Если текст пустой — берём summary из RSS
             if not full_text:
-                full_text = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text().strip()
-                log.info(f"⚠️ Текст из RSS summary: {title[:60]}")
-
-            if not is_allowed(title + " " + full_text):
-                log.info(f"⏭️ Фильтр по тексту: {title[:60]}")
-                continue
+                full_text = BeautifulSoup(
+                    entry.get("summary", ""), "html.parser"
+                ).get_text().strip()
+                log.info(f"Текст из summary: {title[:60]}")
 
             sheet.append_row([
-                "new",      # A - status
-                title,      # B - title
-                full_text,  # C - text
-                photo_url,  # D - photo_url
-                real_url,   # E - url
-                "",         # F - comment
+                "new",
+                title,
+                full_text,
+                photo_url,
+                real_url,
+                "",
             ])
 
             existing_urls.add(url)
             existing_urls.add(real_url)
             added += 1
-            log.info(f"✅ Добавлено: {title[:60]}")
+            log.info(f"Добавлено: {title[:60]}")
 
     log.info(f"=== Готово. Добавлено: {added} ===")
 
