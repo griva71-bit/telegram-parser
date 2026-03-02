@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger(__name__)
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1VAc6d7sfScnLS-LvN7gYg06IeaR6yLgHAFYv4lcTZ3c")
-SHEET_NAME = "news"
+SHEET_NAME = "news"  # ← остаётся "news" как было!
 
 RSS_FEEDS = [
     "https://medvestnik.ru/rss",
@@ -26,34 +26,74 @@ RSS_FEEDS = [
 ]
 
 ALLOW_KEYWORDS = [
-    "пребиот", "жкт", "интермитент", "интервальн", "клиническ",
-    "кортизол", "кетоз", "голодан", "аутофаг", "микробиом",
-    "метабол", "долголет", "диет", "инсулин", "fasting", "autophagy",
+    # Питание и диеты
+    "пребиот", "жкт", "интермитент", "интервальн",
+    "кетоз", "голодан", "аутофаг", "микробиом",
+    "метабол", "диет", "инсулин", "fasting", "autophagy",
     "питани", "пищевар", "кишечник", "ожирен", "похуден",
-    "витамин", "биохим", "гормон", "воспален", "антиоксид"
+    "антиоксид", "витамин", "минерал", "жир", "углевод",
+    # Общая медицина
+    "клиническ", "исследован",
+    "учёны", "ученые", "учены",
+    "врач", "пациент", "лечен", "терапи",
+    "препарат", "лекарств", "таблетк",
+    "вакцин", "иммун", "иммунит",
+    "болезн", "заболеван", "синдром",
+    "диагноз", "симптом",
+    "операци", "хирург",
+    # Науки о теле
+    "биохим", "гормон", "воспален", "кортизол",
+    "долголет", "старени", "стареет",
+    "мозг", "нейрон", "нервн",
+    "ген", "днк", "клетк", "белок", "фермент",
+    "антител", "микроб", "вирус", "бактери", "инфекц",
+    "рак", "онкол", "опухол",
+    "сердц", "сосуд", "давлени",
+    "холестер", "сахар", "диабет", "глюкоз",
+    "стресс", "тревог", "депресс",
+    "сон", "усталост", "энерги",
+    "печен", "почк", "лёгк", "легк",
+    "кост", "мышц", "сустав",
+    "кожа", "кож",
+    # Научные действия
+    "открыл", "обнаружил", "доказал", "выяснил",
+    "установил", "показал", "нашли", "нашел",
+    "эксперимент", "испытани", "клинич",
+    "исследовател", "учёный", "ученый",
+    "антибиотик", "пробиотик",
+    "аллерги", "астм",
+    "инсульт", "инфаркт",
+    "гипертони", "аритми",
 ]
 
 BLOCK_KEYWORDS = [
-    "ремонт", "увол", "назнач", "закуп", "финанс", "администрац",
-    "главврач", "совещан", "заседан", "актрис", "роман", "скандал",
-    "звезд", "знаменит", "светск", "полиц", "крим", "арест",
-    "выбор", "депутат", "партия", "митинг"
+    "ремонт", "увол", "назнач", "закуп",
+    "администрац", "главврач", "совещан", "заседан",
+    "актрис", "роман", "скандал", "звезд", "знаменит",
+    "светск", "полиц", "крим", "арест",
+    "выбор", "депутат", "партия", "митинг",
+    "футбол", "хоккей", "матч",
+    "погод", "прогноз погод",
+    "мода", "стил", "тренд",
 ]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
+
 
 def is_allowed(text: str) -> bool:
     ltext = (text or "").lower()
-    return any(kw in ltext for kw in ALLOW_KEYWORDS) and not any(bw in ltext for bw in BLOCK_KEYWORDS)
+    blocked = any(bw in ltext for bw in BLOCK_KEYWORDS)
+    allowed = any(kw in ltext for kw in ALLOW_KEYWORDS)
+    return allowed and not blocked
+
 
 def scrape_article(url: str) -> tuple:
     try:
         resp = requests.get(url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Фото
         photo_url = ""
         og = soup.find("meta", property="og:image")
         if og and og.get("content"):
@@ -63,11 +103,9 @@ def scrape_article(url: str) -> tuple:
             if tw and tw.get("content"):
                 photo_url = tw["content"]
 
-        # Убираем мусор
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
             tag.decompose()
 
-        # Ищем тело статьи
         article = (
             soup.find("article")
             or soup.find("div", class_=re.compile(r"article|content|body|text", re.I))
@@ -86,12 +124,17 @@ def scrape_article(url: str) -> tuple:
         log.error(f"Ошибка scrape: {ex} | {url[:50]}")
         return "", ""
 
+
 def get_sheet():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive",
+    ]
     creds_dict = json.loads(os.environ.get("GOOGLE_CREDS"))
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+
 
 def main():
     log.info("=== Парсер стартовал ===")
@@ -99,6 +142,7 @@ def main():
 
     records = sheet.get_all_records(default_blank="")
     existing_urls = {r.get("url", "") for r in records}
+    log.info(f"Уже в таблице: {len(existing_urls)} записей")
     added = 0
 
     for feed_url in RSS_FEEDS:
@@ -112,7 +156,7 @@ def main():
 
         for entry in feed.entries[:20]:
             title = entry.get("title", "").strip()
-            url = entry.get("link", "").strip()
+            url   = entry.get("link",  "").strip()
 
             if not url or url in existing_urls:
                 continue
@@ -121,15 +165,14 @@ def main():
                 log.info(f"Пропуск: {title[:60]}")
                 continue
 
+            log.info(f"✅ Подходит: {title[:60]}")
             photo_url, full_text = scrape_article(url)
 
-            # Если не получили текст — берём из RSS summary
             if not full_text:
                 full_text = BeautifulSoup(
                     entry.get("summary", ""), "html.parser"
                 ).get_text().strip()
 
-            # Если фото нет в статье — ищем в RSS
             if not photo_url:
                 for enc in entry.get("enclosures", []):
                     if enc.get("type", "").startswith("image"):
@@ -149,9 +192,10 @@ def main():
 
             existing_urls.add(url)
             added += 1
-            log.info(f"Добавлено: {title[:60]}")
+            log.info(f"➕ Добавлено: {title[:60]}")
 
     log.info(f"=== Готово. Добавлено: {added} ===")
+
 
 if __name__ == "__main__":
     main()
